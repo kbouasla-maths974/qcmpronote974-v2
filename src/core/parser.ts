@@ -1,107 +1,84 @@
-import { formatLatexToHtml } from "./latex";
-
-export interface Reponse {
-  texte: string;
-  correct: boolean;
-  feedback?: string;
+export interface Answer {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+  feedback?: string; // Ajout du feedback spécifique par réponse
 }
 
 export interface Question {
-  question: string;
-  reponses: Reponse[];
+  id: number;
+  text: string;
+  answers: Answer[];
+  globalFeedback?: string; // Feedback général (si besoin)
 }
 
-export function parseQCM(text: string): Question[] {
-  // Sécuriser l'entrée
-  const safeText = "\n" + (text || "");
-  const lines = safeText.split("\n");
-  
+/**
+ * PARSER V3 : Supporte les feedbacks spécifiques par ligne.
+ * Format : [-] Mauvaise réponse [F] Pourquoi c'est faux
+ */
+export const parseQuestions = (input: string): Question[] => {
+  // 1. Nettoyage
+  const cleanInput = input
+    .replace(/```(?:text|xml)?/g, '')
+    .replace(/```/g, '')
+    .replace(/\r\n/g, '\n');
+
+  // 2. Découpage par question
+  const blocks = cleanInput.split('[Q]');
   const questions: Question[] = [];
-  let currentQuestionText: string | null = null;
-  let currentReponses: Reponse[] = [];
-  
-  // Regex (Expressions régulières) pour détecter les motifs
-  const regexQuestion = /^\s*#*\s*question[\s]*[a-zA-Z0-9]*[\s]*?[.:),;}\]]\s*/i;
-  const regexReponse = /^\s*réponse\s+[a-zA-Z0-9]+[\s]*[.:),;}\]]/i;
 
-  let i = 0;
-  while (i < lines.length) {
-    const line = retirerEtoilesEtDieses(lines[i]).trim();
+  blocks.forEach((block, index) => {
+    if (!block.trim()) return;
 
-    // Cas 1 : C'est une QUESTION
-    if (regexQuestion.test(line)) {
-      // Si on avait déjà une question en cours, on l'enregistre
-      if (currentQuestionText) {
-        questions.push({
-          question: currentQuestionText,
-          reponses: currentReponses
-        });
-        currentReponses = [];
-      }
+    // A. Extraction de l'énoncé
+    const questionMatch = block.match(/^(.*?)(?=\[(?:\+|-)\])/s);
+    let questionText = questionMatch ? questionMatch[1].trim() : "Question sans énoncé";
 
-      // On nettoie le texte de la nouvelle question (enlève "Question 1 :")
-      // et on transforme les maths en HTML
-      currentQuestionText = formatQuestionReponse(line, regexQuestion);
-      i++;
-    } 
-    // Cas 2 : C'est une RÉPONSE
-    else if (regexReponse.test(line)) {
-      let reponseTexte = formatQuestionReponse(line, regexReponse);
-      let isCorrect = false;
-      let feedback: string | undefined = undefined;
+    // B. Extraction des réponses ligne par ligne (plus robuste pour les feedbacks)
+    // On cherche tout ce qui commence par [+] ou [-]
+    const answerRegex = /\[(\+|-)\]\s*(.*?)(?=\n\[(?:\+|-)\]|$|\n\s*$)/gs;
+    
+    // Si la regex ci-dessus est trop stricte, on peut itérer sur les lignes :
+    const lines = block.split('\n');
+    const answers: Answer[] = [];
+    let answerIndex = 0;
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-      // On regarde les lignes suivantes pour trouver les balises %%CORRECT%% etc.
-      i++;
-      while (i < lines.length) {
-        const nextLine = lines[i].trim();
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[+]') || trimmed.startsWith('[-]')) {
+        const isCorrect = trimmed.startsWith('[+]');
         
-        if (nextLine.startsWith("%%CORRECT%%")) {
-          isCorrect = true;
-        } else if (nextLine.startsWith("%%INCORRECT%%")) {
-          isCorrect = false;
-        } else if (nextLine.startsWith("%%FEEDBACK%%")) {
-          feedback = nextLine.replace("%%FEEDBACK%%", "").trim();
-        } else if (regexReponse.test(nextLine) || regexQuestion.test(nextLine)) {
-          // On est tombé sur la suite, on arrête de chercher des balises pour cette réponse
-          break;
+        // On retire le marqueur [+] ou [-]
+        let content = trimmed.substring(3).trim();
+        let feedback = undefined;
+
+        // On cherche le tag [F] dans la ligne
+        if (content.includes('[F]')) {
+          const parts = content.split('[F]');
+          content = parts[0].trim();
+          feedback = parts[1] ? parts[1].trim() : undefined;
         }
-        i++;
-      }
 
-      currentReponses.push({
-        texte: reponseTexte,
-        correct: isCorrect,
-        feedback: feedback
-      });
-    } 
-    // Cas 3 : C'est une suite de texte (multiligne)
-    else {
-      if (currentQuestionText !== null && line.length > 0) {
-        // C'est probablement la suite de la question précédente
-        currentQuestionText += " " + formatQuestionReponse(line, / /); // Regex vide juste pour nettoyer
+        answers.push({
+          id: letters[answerIndex] || `opt${answerIndex}`,
+          text: content,
+          isCorrect: isCorrect,
+          feedback: feedback
+        });
+        answerIndex++;
       }
-      i++;
-    }
-  }
-
-  // N'oublie pas d'enregistrer la toute dernière question
-  if (currentQuestionText) {
-    questions.push({
-      question: currentQuestionText,
-      reponses: currentReponses
     });
-  }
+
+    // C. Validation
+    if (answers.length > 0) {
+      questions.push({
+        id: index + 1,
+        text: questionText,
+        answers: answers
+      });
+    }
+  });
 
   return questions;
-}
-
-// Nettoie les **gras** et ## titres du Markdown
-function retirerEtoilesEtDieses(text: string): string {
-  return text.replace(/(\*\*+|##+)/g, "");
-}
-
-// Nettoie le préfixe (ex: "Réponse a)") et formate le LaTeX
-function formatQuestionReponse(text: string, regexPrefix: RegExp): string {
-  const textWithoutPrefix = text.replace(regexPrefix, "").trim();
-  return formatLatexToHtml(textWithoutPrefix);
-}
+};

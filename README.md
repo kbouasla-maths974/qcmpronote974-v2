@@ -9,7 +9,7 @@ Bienvenue sur le dépôt de l'application qui réconcilie enfin l'Intelligence A
 ## 🚀 Démo en direct
 
 Pas envie de lire le code ? Vous voulez juste générer un QCM maintenant ?  
-👉 **[Cliquez ici pour accéder à l'application](https://www.google.com/search?q=https://kbouasla-maths974.github.io/qcmpronote974/)**
+👉 **[Cliquez ici pour accéder à l'application](https://www.google.com/search?q=https://kbouasla-maths974.github.io/qcmpronote974-v2/)**
 
 -----
 
